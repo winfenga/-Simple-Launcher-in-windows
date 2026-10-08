@@ -2,25 +2,39 @@
 # -*- coding: utf-8 -*-
 """
 =========================================================
-  Launcher - 本地可视化启动器  v1.2
+  Launcher - 本地可视化启动器  v1.2.1
 =========================================================
 把 BAT / EXE / Python / 文件夹 / 网址 拖进来，
-起个中文名、配个图标，点一下就能启动（或用快捷键唤出）。
+起个中文名、配个图标，点一下就能启动。
+
+v1.2.1 改了些什么
+---------------------------------------------------------
+1. 【移除】全局快捷键功能整个拆掉了。
+   原因：打包成 exe 之后它不可靠 —— 热键确实注册上了（别的进程再注册同一个
+   组合会被系统拒绝，错误码 1409），但真按下去窗口没反应；而用同样方式注入
+   的按键，一个对照小程序却能正常收到 WM_HOTKEY。与其留一个「按了不一定有
+   反应」的功能，不如拿掉：现在靠「托盘图标」或「再双击一次 exe」把窗口唤出来，
+   这两条路都验证过是稳的。
+   （每个启动项的「专属快捷键」用的是同一套机制，也一并移除。
+     想找回这段代码的话，见 git 历史 / backup_v1.2_* 备份。）
+2. 【修复】添加 / 编辑窗口根本打不开：那一行把 self.item 写成了 item，
+   直接 NameError —— 等于加不了也改不了任何启动项。
+3. 【修复】对话框建到一半崩了会留下一个攥着输入焦点、关不掉的空窗口，
+   整个界面看着像卡死。现在失败会自动清掉并松开焦点。
+4. 【修复】唤出窗口时用 AttachThreadInput（抢不到再补一次 ALT 轻敲）真正
+   抢到最前面；以前后台进程直接调 SetForegroundWindow 会被系统拦掉。
+5. 顺手记一笔踩过的坑：tkinter 的 self._w 是窗口路径名，拿它当「宽度」存
+   会报 TclError: invalid command name "460"。
 
 v1.2 新增
 ---------------------------------------------------------
-1. 全局快捷键：任意界面按一下就能唤出 / 收起启动器
-   - 默认 Ctrl+Alt+Space，可在「☰ 菜单 → 快捷键设置」里改
-   - 支持 Ctrl / Alt / Shift / Win 任意组合、F1~F24、字母数字等
-   - 注册失败会说明原因（多半是被别的软件占用了）
-2. 添加向导：添加 / 编辑启动项时不再是一片空表单
+1. 添加向导：添加 / 编辑启动项时不再是一片空表单
    - 分四步走的字段说明，每一项都告诉你「填什么、能不能留空」
    - 根据文件类型自动给出针对性提示（bat 要工作目录、py 要不要黑窗…）
    - 「✨ 推荐设置」一键填好，「▶ 试运行」先试试再保存
    - 首次运行弹出使用引导，菜单里随时能再看
 3. 界面重做：圆角卡片 / 圆角按钮 / 主题色板 / 分组徽章 / 悬浮反馈
    - 卡片和列表全部用 Canvas 自绘，深色浅色两套配色都调过
-   - 顶栏显示当前快捷键，点一下就能改
    - 搜索框、空状态、状态栏、滚动条细节统一
 
 v1.1 主要修复
@@ -125,7 +139,7 @@ BACKUP_FILE = os.path.join(BASE_DIR, "launcher_config.bak.json")
 ERROR_LOG = os.path.join(BASE_DIR, "launcher_error.log")
 
 APP_NAME = "启动器"
-APP_VERSION = "1.2"
+APP_VERSION = "1.2.1"
 
 os.makedirs(ICON_DIR, exist_ok=True)
 
@@ -186,205 +200,6 @@ CONSOLE_KEY = {label: key for label, key in CONSOLE_CHOICES}
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010)
 IS_WIN = os.name == "nt"
-
-# ---- 全局快捷键（RegisterHotKey）相关常量 ----
-MOD_ALT = 0x0001
-MOD_CONTROL = 0x0002
-MOD_SHIFT = 0x0004
-MOD_WIN = 0x0008
-MOD_NOREPEAT = 0x4000
-WM_HOTKEY = 0x0312
-WM_QUIT = 0x0012
-HOTKEY_ID = 0xB1
-ITEM_HOTKEY_BASE = 0x1000        # 项目专属快捷键的 id 从这里开始排
-DEFAULT_HOTKEY = "Ctrl+Alt+Space"
-
-# 可用的按键（键名 -> 虚拟键码）
-VK_TABLE = {
-    "backspace": 0x08, "tab": 0x09, "enter": 0x0D, "return": 0x0D,
-    "esc": 0x1B, "escape": 0x1B, "space": 0x20,
-    "pageup": 0x21, "pgup": 0x21, "pagedown": 0x22, "pgdn": 0x22,
-    "end": 0x23, "home": 0x24, "left": 0x25, "up": 0x26,
-    "right": 0x27, "down": 0x28, "insert": 0x2D, "ins": 0x2D, "delete": 0x2E,
-    "`": 0xC0, "-": 0xBD, "=": 0xBB, "[": 0xDB, "]": 0xDD,
-    "\\": 0xDC, ";": 0xBA, "'": 0xDE, ",": 0xBC, ".": 0xBE, "/": 0xBF,
-}
-for _i in range(1, 25):
-    VK_TABLE["f%d" % _i] = 0x6F + _i
-
-# 虚拟键码 -> 显示名（用于回显，只挑好看的写法）
-VK_LABEL = {
-    0x08: "Backspace", 0x09: "Tab", 0x0D: "Enter", 0x1B: "Esc", 0x20: "Space",
-    0x21: "PgUp", 0x22: "PgDn", 0x23: "End", 0x24: "Home",
-    0x25: "←", 0x26: "↑", 0x27: "→", 0x28: "↓",
-    0x2D: "Ins", 0x2E: "Delete", 0xC0: "`", 0xBD: "-", 0xBB: "=",
-    0xDB: "[", 0xDD: "]", 0xDC: "\\", 0xBA: ";", 0xDE: "'",
-    0xBC: ",", 0xBE: ".", 0xBF: "/",
-}
-for _i in range(1, 25):
-    VK_LABEL[0x6F + _i] = "F%d" % _i
-
-
-def _vk_for(token):
-    """把按键名转成虚拟键码"""
-    t = str(token).strip().lower()
-    if t in VK_TABLE:
-        return VK_TABLE[t]
-    if len(t) == 1 and (t.isalnum()):
-        return ord(t.upper())
-    return None
-
-
-def parse_hotkey(text):
-    """'Ctrl+Alt+Space' -> (mods, vk)；不合法返回 (None, None)"""
-    if not text:
-        return None, None
-    mods = 0
-    vk = None
-    for part in str(text).replace(" ", "").split("+"):
-        p = part.strip().lower()
-        if not p:
-            continue
-        if p in ("ctrl", "control"):
-            mods |= MOD_CONTROL
-        elif p in ("alt", "menu"):
-            mods |= MOD_ALT
-        elif p == "shift":
-            mods |= MOD_SHIFT
-        elif p in ("win", "super", "meta", "cmd"):
-            mods |= MOD_WIN
-        else:
-            code = _vk_for(p)
-            if code is None:
-                return None, None
-            vk = code
-    if vk is None or mods == 0:
-        return None, None       # 至少得有一个修饰键，否则会抢走普通按键
-    return mods, vk
-
-
-def format_hotkey(mods, vk):
-    """(mods, vk) -> 'Ctrl+Alt+Space'"""
-    if not mods or not vk:
-        return ""
-    parts = []
-    if mods & MOD_CONTROL:
-        parts.append("Ctrl")
-    if mods & MOD_ALT:
-        parts.append("Alt")
-    if mods & MOD_SHIFT:
-        parts.append("Shift")
-    if mods & MOD_WIN:
-        parts.append("Win")
-    label = VK_LABEL.get(vk)
-    if label is None:
-        label = chr(vk) if 32 < vk < 127 else "Key%d" % vk
-    parts.append(label)
-    return "+".join(parts)
-
-
-class HotkeyManager(object):
-    """在独立线程里注册全局热键（支持多个：总开关 + 每个项目的专属键）。
-
-    RegisterHotKey(hwnd=NULL) 把 WM_HOTKEY 投递到「调用它的那个线程」的消息队列，
-    所以这里单开一个线程跑 GetMessage 循环；触发时只把热键 id 扔进队列，
-    由主线程轮询处理（不跨线程碰 Tk）。
-    """
-
-    def __init__(self, sink=None):
-        self.sink = sink if sink is not None else queue.Queue()
-        self._thread = None
-        self._tid = None
-        self._lock = threading.Lock()
-        self.registered = []
-        self.fails = {}
-
-    def stop(self):
-        with self._lock:
-            thread, tid = self._thread, self._tid
-            self._thread = None
-            self._tid = None
-            self.registered = []
-        if thread is not None and tid:
-            try:
-                ctypes.windll.user32.PostThreadMessageW(tid, WM_QUIT, 0, 0)
-            except Exception:
-                pass
-            try:
-                thread.join(1.5)
-            except Exception:
-                pass
-
-    def set_hotkeys(self, entries):
-        """entries: [(热键id, mods, vk)]；全部重新注册。
-
-        返回 (成功注册的 id 列表, {失败的 id: 错误码})
-        """
-        self.stop()
-        self.fails = {}
-        if not IS_WIN or not entries:
-            return [], {}
-        box = {"ok": [], "fails": {}, "dead": False}
-        ready = threading.Event()
-        thread = threading.Thread(target=self._run, args=(entries, box, ready),
-                                  daemon=True)
-        thread.start()
-        ready.wait(2.5)
-        self.fails = dict(box.get("fails", {}))
-        with self._lock:
-            self._thread = None if box.get("dead") else thread
-        self.registered = list(box.get("ok", []))
-        return self.registered, self.fails
-
-    def _run(self, entries, box, ready):
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        msg = wintypes.MSG()
-        try:
-            self._tid = kernel32.GetCurrentThreadId()
-            for hid, mods, vk in entries:
-                # 注意：Win32 里这两个函数没有 A/W 后缀
-                if user32.RegisterHotKey(None, int(hid), int(mods) | MOD_NOREPEAT,
-                                         int(vk)):
-                    box["ok"].append(hid)
-                else:
-                    box["fails"][hid] = ctypes.get_last_error()
-            ready.set()
-            if not box["ok"]:
-                box["dead"] = True
-                return
-            while True:
-                ret = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
-                if ret <= 0:
-                    break
-                if msg.message == WM_HOTKEY:
-                    try:
-                        self.sink.put(int(msg.wparam))
-                    except Exception:
-                        pass
-        except Exception:
-            _write_error_log("热键线程出错：\n%s" % traceback.format_exc())
-            try:
-                ready.set()
-            except Exception:
-                pass
-        finally:
-            try:
-                for hid in box.get("ok", []):
-                    user32.UnregisterHotKey(None, int(hid))
-            except Exception:
-                pass
-
-
-def hotkey_error_text(code):
-    try:
-        code = int(code)
-    except Exception:
-        code = 0
-    if code == 1409:
-        return "这个组合已经被别的程序占用了"
-    return "系统拒绝注册（错误码 %s）" % code
-
 
 # 图片缓存：{(path, size, mtime, filesize): PhotoImage}
 _IMAGE_CACHE = {}
@@ -773,6 +588,78 @@ def enable_dpi_awareness():
 
 
 _MUTEX = None
+
+
+# Windows: GetAncestor / ShowWindow / keybd_event 用的常量
+GA_ROOT = 2
+SW_RESTORE = 9
+VK_MENU = 0x12
+KEYEVENTF_KEYUP = 0x0002
+
+
+def _top_level_hwnd(widget):
+    """拿到 Tk 窗口对应的真正顶层窗口句柄"""
+    hwnd = int(widget.winfo_id())
+    try:
+        root = ctypes.windll.user32.GetAncestor(hwnd, GA_ROOT)
+        if root:
+            return int(root)
+    except Exception:
+        pass
+    return hwnd
+
+
+def _set_foreground(hwnd):
+    """AttachThreadInput + SetForegroundWindow，返回是否真的抢到了前台"""
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    fg = user32.GetForegroundWindow()
+    tid_fg = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+    tid_me = kernel32.GetCurrentThreadId()
+    attached = False
+    if tid_fg and tid_fg != tid_me:
+        attached = bool(user32.AttachThreadInput(tid_fg, tid_me, True))
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        user32.SetFocus(hwnd)
+    finally:
+        if attached:
+            user32.AttachThreadInput(tid_fg, tid_me, False)
+    return int(user32.GetForegroundWindow() or 0) == int(hwnd)
+
+
+def force_foreground(widget):
+    """把窗口真正抢到最前面并拿到焦点。
+
+    只靠 Tk 的 focus_force() / lift() 是不够的：Windows 只允许「当前前台进程」
+    或「刚收到输入事件的进程」调用 SetForegroundWindow，别的进程调用只会让任务栏
+    闪一下。于是再双击一次启动器图标时，窗口可能只是「显示出来了」却没到最前面。
+    办法：先把本线程挂到前台线程上（AttachThreadInput）再抢；还被拦的话，
+    就自己模拟一次 ALT 轻敲 —— 系统会把「最后一个输入事件」算到我们头上，
+    这一步之后 SetForegroundWindow 就能成功（AutoHotkey / PowerToys 用的也是这招）。
+    """
+    if not IS_WIN:
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = _top_level_hwnd(widget)
+        if not hwnd:
+            return False
+        try:
+            user32.ShowWindow(hwnd, SW_RESTORE)     # 最小化过就先还原
+        except Exception:
+            pass
+        if _set_foreground(hwnd):
+            return True
+        try:
+            user32.keybd_event(VK_MENU, 0, 0, 0)
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+        except Exception:
+            pass
+        return _set_foreground(hwnd)
+    except Exception:
+        return False
 
 
 def acquire_single_instance():
@@ -1200,8 +1087,6 @@ DEFAULT_CONFIG = {
         "always_on_top": False,
         "geometry": "1000x640",
         "tray_enabled": True,
-        "hotkey_enabled": True,
-        "hotkey": DEFAULT_HOTKEY,
         "guide_shown": False,
         "start_hidden": False,
         "hide_on_blur": False,
@@ -1214,7 +1099,7 @@ ITEM_DEFAULTS = {
     "id": "", "name": "", "path": "", "icon": None, "group": "",
     "admin": False, "pinned": False, "run_count": 0,
     "cwd": "", "args": "", "console": CONSOLE_AUTO,
-    "hotkey": "", "order": None,
+    "order": None,
 }
 
 
@@ -1226,6 +1111,7 @@ def normalize_item(raw):
         item["console"] = CONSOLE_AUTO
     if not item.get("id"):
         item["id"] = human_key(str(item.get("path", "")) + str(item.get("name", "")))
+    item.pop("hotkey", None)   # v1.2 的专属快捷键已移除，老配置里残留的字段清掉
     try:
         item["order"] = float(item["order"]) if item.get("order") not in (None, "") else None
     except Exception:
@@ -1734,7 +1620,6 @@ class ItemDialog(tk.Toplevel):
         self.resizable(False, True)
         self.minsize(600, 480)
         self.transient(master)
-        self.grab_set()
 
         self.path_var = tk.StringVar(value=(item or {}).get("path", path or ""))
         self.name_var = tk.StringVar()
@@ -1756,6 +1641,9 @@ class ItemDialog(tk.Toplevel):
         self.name_var.set(base)
 
         self._build(th)
+        # 构建成功之后再抢输入焦点：万一某个控件建失败了，也不会留下一个抢着焦点、
+        # 又没人能关掉的空窗口（那会让整个界面看起来像卡死）
+        self.grab_set()
 
         if item and item.get("icon") and os.path.exists(item["icon"]):
             self.icon_file = item["icon"]
@@ -1919,20 +1807,6 @@ class ItemDialog(tk.Toplevel):
         make_button(btns, "自动提取", self._auto_icon_and_refresh, th,
                     variant="ghost", font=(FONT_UI, 9), pad=(14, 7)).pack()
         self._field_hint(sec4, "EXE 会自动提取原生图标；其他类型用 emoji 兜底，不选也没关系。")
-
-        tk.Label(sec4, text="专属快捷键（可留空）", bg=th["bg"], fg=th["sub"],
-                 font=(FONT_UI, 9)).pack(anchor="w", pady=(12, 0))
-        cap_row = tk.Frame(sec4, bg=th["bg"])
-        cap_row.pack(fill="x", pady=(4, 0))
-        self.hotkey_cap = HotkeyCapture(
-            cap_row, th, value=(item or {}).get("hotkey", ""),
-            width=330, height=44, font_size=11,
-            hint="点这里按下组合键（留空 = 不设置）", tag_text="")
-        self.hotkey_cap.pack(side="left")
-        make_button(cap_row, "清空", self.hotkey_cap.clear, th, variant="ghost",
-                    font=(FONT_UI, 9), pad=(12, 8)).pack(side="left", padx=(8, 0))
-        self._field_hint(sec4, "设好后在任何界面按这个组合键就能直接启动它；"
-                               "和别的快捷键撞车会在保存时提醒你。")
 
         opt = tk.Frame(sec4, bg=th["bg"])
         opt.pack(fill="x", pady=(12, 0))
@@ -2181,28 +2055,6 @@ class ItemDialog(tk.Toplevel):
             else:
                 cwd = os.path.dirname(path)
                 self.cwd_var.set(cwd)
-        # 专属快捷键：格式、跟总快捷键、跟其它项目的冲突都先在这里挡下来
-        hotkey = ""
-        try:
-            hotkey = (self.hotkey_cap.value() or "").strip()
-        except Exception:
-            hotkey = ""
-        if hotkey:
-            mods, vk = parse_hotkey(hotkey)
-            if vk is None:
-                self._say("⚠ 专属快捷键格式不对：要「修饰键 + 按键」，例如 Ctrl+Alt+1", "warn")
-                return
-            hotkey = format_hotkey(mods, vk)
-            if self.app.settings.get("hotkey_enabled", True) \
-                    and hotkey == self.app.settings.get("hotkey", ""):
-                self._say("⚠ 这个组合已经用来「唤出启动器」了，换一个吧", "warn")
-                return
-            for other in self.app.cfg["items"]:
-                if other is self.item:
-                    continue
-                if str(other.get("hotkey") or "") == hotkey:
-                    self._say("⚠ 「%s」已经占用了这个组合" % other.get("name", "?"), "warn")
-                    return
         self.result = {
             "name": name,
             "path": path,
@@ -2213,7 +2065,6 @@ class ItemDialog(tk.Toplevel):
             "console": CONSOLE_KEY.get(self.console_var.get(), CONSOLE_AUTO),
             "admin": self.admin_var.get(),
             "pinned": self.pin_var.get(),
-            "hotkey": hotkey,
         }
         self.destroy()
 
@@ -2227,7 +2078,7 @@ class ItemDialog(tk.Toplevel):
 
 
 # ---------------------------------------------------------
-# 使用引导 / 快捷键设置 / 输入弹窗
+# 使用引导 / 输入弹窗
 # ---------------------------------------------------------
 GUIDE_STEPS = [
     ("添加项目",
@@ -2240,9 +2091,9 @@ GUIDE_STEPS = [
     ("点一下就启动",
      "左键单击卡片＝启动；右键＝无窗口启动 / 管理员运行 / 编辑 / 删除。\n"
      "唤出后可以直接打字搜索，↑↓ 选，Enter 启动。"),
-    ("快捷键随时唤出",
-     "在任何界面按一下快捷键，窗口就跳出来；再按一下收回去。\n"
-     "默认是 %s，想换组合去菜单「⌨ 快捷键设置」。" % DEFAULT_HOTKEY),
+    ("怎么把它叫回来",
+     "点 × 是缩到右下角托盘（不是退出），左键点托盘图标就回来了。\n"
+     "也可以再双击一次启动器 exe：不会开第二个，而是把已经开着的窗口叫到最前面。"),
 ]
 
 
@@ -2290,8 +2141,6 @@ class GuideDialog(tk.Toplevel):
         foot.pack(fill="x", padx=24, pady=16)
         RoundButton(foot, "＋  添加第一个启动项", self._add_now, th, variant="primary",
                     font=(FONT_UI, 10), padx=18, pady=10).pack(side="left")
-        RoundButton(foot, "⌨  设置快捷键", self._hotkey_now, th, variant="secondary",
-                    font=(FONT_UI, 10), padx=16, pady=10).pack(side="left", padx=(10, 0))
         RoundButton(foot, "知道了", self._close, th, variant="ghost",
                     font=(FONT_UI, 10), padx=16, pady=10).pack(side="right")
 
@@ -2326,284 +2175,8 @@ class GuideDialog(tk.Toplevel):
         self._close()
         self.app.add_item()
 
-    def _hotkey_now(self):
-        self._dismiss()
-        self._close()
-        self.app._hotkey_dialog()
-
     def _close(self):
         self._dismiss()
-        try:
-            self.destroy()
-        except Exception:
-            pass
-
-
-KEYSYM_TO_VK = {
-    "BackSpace": 0x08, "Tab": 0x09, "Return": 0x0D, "KP_Enter": 0x0D,
-    "Escape": 0x1B, "space": 0x20, "Prior": 0x21, "Next": 0x22,
-    "End": 0x23, "Home": 0x24, "Left": 0x25, "Up": 0x26,
-    "Right": 0x27, "Down": 0x28, "Insert": 0x2D, "Delete": 0x2E,
-}
-for _i in range(1, 25):
-    KEYSYM_TO_VK["F%d" % _i] = 0x6F + _i
-
-MODIFIER_KEYSYMS = {
-    "Control_L": "Ctrl", "Control_R": "Ctrl",
-    "Alt_L": "Alt", "Alt_R": "Alt",
-    "Shift_L": "Shift", "Shift_R": "Shift",
-    "Super_L": "Win", "Super_R": "Win", "Win_L": "Win", "Win_R": "Win",
-}
-MOD_BITS = {"Ctrl": MOD_CONTROL, "Alt": MOD_ALT, "Shift": MOD_SHIFT, "Win": MOD_WIN}
-
-
-def vk_from_keysym(keysym):
-    if keysym in KEYSYM_TO_VK:
-        return KEYSYM_TO_VK[keysym]
-    if len(keysym) == 1 and keysym.isalnum():
-        return ord(keysym.upper())
-    return None
-
-
-class HotkeyCapture(tk.Canvas):
-    """录制式快捷键输入框：点一下，然后按下想要的组合键。
-
-    主窗口的「快捷键设置」和添加窗口里的「专属快捷键」共用它。
-    """
-
-    def __init__(self, master, th, value="", width=460, height=76,
-                 font_size=17, hint="点这里，然后按下想要的组合键",
-                 tag_text="按下组合键", on_change=None):
-        super().__init__(master, width=width, height=height, bg=th["bg"],
-                         highlightthickness=0, bd=0, cursor="hand2",
-                         takefocus=1)
-        self.th = th
-        self._w = int(width)
-        self._h = int(height)
-        self._font_size = font_size
-        self._hint = hint
-        self._tag = tag_text
-        self._on_change = on_change
-        self._mods = set()
-        self._vk = None
-        self._focused = False
-        if value:
-            self.set(value)
-        self.bind("<Button-1>", lambda e: self.focus_set())
-        self.bind("<FocusIn>", self._on_focus_in)
-        self.bind("<FocusOut>", self._on_focus_out)
-        self.bind("<KeyPress>", self._on_press)
-        self.bind("<KeyRelease>", self._on_release)
-        self.draw()
-
-    # ---- 内部 ----
-    def _split(self, text):
-        mods, vk = parse_hotkey(text)
-        names = set()
-        for label, bit in (("Ctrl", MOD_CONTROL), ("Alt", MOD_ALT),
-                           ("Shift", MOD_SHIFT), ("Win", MOD_WIN)):
-            if mods and (mods & bit):
-                names.add(label)
-        return names, vk
-
-    def combo_text(self, code=None):
-        mods = 0
-        for name in self._mods:
-            mods |= MOD_BITS.get(name, 0)
-        vk = self._vk if code is None else code
-        return format_hotkey(mods, vk)
-
-    def value(self):
-        return self.combo_text()
-
-    def set(self, text):
-        self._mods, self._vk = self._split(text)
-        self.draw()
-        self._changed()
-
-    def clear(self):
-        self._mods = set()
-        self._vk = None
-        self.draw()
-        self._changed()
-
-    def _changed(self):
-        if self._on_change:
-            try:
-                self._on_change(self.value())
-            except Exception:
-                pass
-
-    def _on_focus_in(self, _e=None):
-        self._focused = True
-        self.draw()
-
-    def _on_focus_out(self, _e=None):
-        self._focused = False
-        self._mods = set()
-        self.draw()
-
-    def _on_press(self, event):
-        if event.keysym == "Escape":
-            return None                      # 留给对话框处理
-        if event.keysym in MODIFIER_KEYSYMS:
-            self._mods.add(MODIFIER_KEYSYMS[event.keysym])
-            self.draw()
-            return "break"
-        code = vk_from_keysym(event.keysym)
-        if code is None:
-            self.flash("这个按键不支持，换一个（字母 / 数字 / F1~F24 / 空格等）")
-            return "break"
-        if not self._mods:
-            self.draw(code=code)
-            self.flash("还要按住一个修饰键：Ctrl / Alt / Shift / Win")
-            return "break"
-        self._vk = code
-        self.draw()
-        self._changed()
-        return "break"
-
-    def _on_release(self, event):
-        if event.keysym in MODIFIER_KEYSYMS:
-            self._mods.discard(MODIFIER_KEYSYMS[event.keysym])
-            self.draw()
-
-    def flash(self, text):
-        try:
-            self.delete("flash")
-            self.create_text(self._w / 2.0, self._h - 10, text=text,
-                             fill=self.th["warn"], font=(FONT_UI, 8), tags="flash")
-        except Exception:
-            pass
-
-    def draw(self, code=None):
-        th = self.th
-        self.delete("all")
-        w, h = self._w, self._h
-        edge = th["accent"] if self._focused else th["border_hi"]
-        draw_round(self, 1, 1, w - 1, h - 1, 12, th["card"], edge, 1)
-        text = self.combo_text(code)
-        if text:
-            self.create_text(w / 2.0, h / 2.0, text=text, fill=th["accent"],
-                             font=(FONT_UI, self._font_size, "bold"))
-        else:
-            self.create_text(w / 2.0, h / 2.0, text=self._hint,
-                             fill=th["sub"],
-                             font=(FONT_UI, max(9, self._font_size - 6)))
-        if self._tag and h >= 60:
-            self.create_text(w - 12, 12, text=self._tag, anchor="ne",
-                             fill=th["sub"], font=(FONT_UI, 8))
-
-
-class HotkeyDialog(tk.Toplevel):
-    """录制式快捷键设置：点住框按下组合键即可"""
-
-    def __init__(self, master, app, th):
-        super().__init__(master)
-        self.app = app
-        self.th = th
-        self.configure(bg=th["bg"])
-        self.title("快捷键设置")
-        self.resizable(False, False)
-        self.transient(master)
-        self.grab_set()
-
-        cur = app.settings.get("hotkey", DEFAULT_HOTKEY)
-        self._enabled = tk.BooleanVar(value=app.settings.get("hotkey_enabled", True))
-
-        head = tk.Frame(self, bg=th["bg"])
-        head.pack(fill="x", padx=24, pady=(20, 8))
-        tk.Label(head, text="⌨  全局快捷键", bg=th["bg"], fg=th["text"],
-                 font=(FONT_UI, 14, "bold")).pack(anchor="w")
-        tk.Label(head, text="按一下这个组合键，启动器就会跳出来；再按一下收回去。\n"
-                            "至少要有 Ctrl / Alt / Shift / Win 中的一个修饰键，避免抢走普通按键。",
-                 bg=th["bg"], fg=th["sub"], font=(FONT_UI, 9), justify="left").pack(
-            anchor="w", pady=(6, 0))
-
-        self.capture = HotkeyCapture(self, th, value=cur, width=460, height=76,
-                                     font_size=17)
-        self.capture.pack(padx=24, pady=(14, 0))
-        self.capture.focus_set()
-        self.bind("<Escape>", lambda e: self._cancel())
-
-        presets = tk.Frame(self, bg=th["bg"])
-        presets.pack(fill="x", padx=24, pady=(12, 0))
-        tk.Label(presets, text="常用组合：", bg=th["bg"], fg=th["sub"],
-                 font=(FONT_UI, 9)).pack(side="left")
-        for text in ("Ctrl+Alt+Space", "Ctrl+Shift+Space", "Alt+Q", "Ctrl+Alt+L"):
-            RoundButton(presets, text, lambda t=text: self._set_combo(t), th,
-                        variant="ghost", font=(FONT_UI, 9), padx=10, pady=6).pack(
-                side="left", padx=2)
-
-        self.chk = tk.Checkbutton(self, text="启用全局快捷键", variable=self._enabled,
-                                  bg=th["bg"], fg=th["text"], selectcolor=th["card"],
-                                  activebackground=th["bg"], activeforeground=th["text"],
-                                  font=(FONT_UI, 10), bd=0, highlightthickness=0)
-        self.chk.pack(anchor="w", padx=24, pady=(12, 0))
-
-        self.msg = tk.Label(self, text="", bg=th["bg"], fg=th["sub"],
-                            font=(FONT_UI, 9), anchor="w", justify="left",
-                            wraplength=460)
-        self.msg.pack(fill="x", padx=24, pady=(8, 0))
-
-        foot = tk.Frame(self, bg=th["bg"])
-        foot.pack(fill="x", padx=24, pady=16)
-        RoundButton(foot, "保存", self._save, th, variant="primary",
-                    font=(FONT_UI, 10, "bold"), padx=22, pady=10).pack(side="right")
-        RoundButton(foot, "取消", self._cancel, th, variant="secondary",
-                    font=(FONT_UI, 10), padx=18, pady=10).pack(side="right", padx=(0, 10))
-        RoundButton(foot, "恢复默认", lambda: self._set_combo(DEFAULT_HOTKEY), th,
-                    variant="ghost", font=(FONT_UI, 9), padx=14, pady=10).pack(side="left")
-
-        self._draw_capture()
-        self._center(master)
-
-    def _center(self, master):
-        try:
-            self.update_idletasks()
-            w, h = self.winfo_width(), self.winfo_height()
-            x = master.winfo_rootx() + (master.winfo_width() - w) // 2
-            y = master.winfo_rooty() + (master.winfo_height() - h) // 3
-            self.geometry("+%d+%d" % (max(0, x), max(0, y)))
-        except Exception:
-            pass
-
-    # ---- 录制 ----
-    def _set_combo(self, text):
-        self.capture.set(text)
-        self._say("已填入 %s，点「保存」生效" % text)
-
-    def _combo_text(self):
-        return self.capture.value()
-
-    def _draw_capture(self, code=None):
-        self.capture.draw(code)
-
-    def _say(self, text, color_key="sub"):
-        self.msg.config(text=text, fg=self.th[color_key])
-
-    # ---- 按钮 ----
-    def _save(self):
-        text = self._combo_text()
-        if not text:
-            self._say("⚠ 先按一个组合键", "warn")
-            return
-        if not self._enabled.get():
-            ok, info = self.app._apply_hotkey(text, False)
-            if not ok:
-                self._say("❌ %s" % info, "err")
-                return
-            self._say("已保存（当前未启用）", "ok")
-            self.after(400, self.destroy)
-            return
-        ok, info = self.app._apply_hotkey(text, True)
-        if not ok:
-            self._say("❌ %s" % info, "err")
-            return
-        self._say("✅ 已启用：%s" % info, "ok")
-        self.after(400, self.destroy)
-
-    def _cancel(self):
         try:
             self.destroy()
         except Exception:
@@ -3663,11 +3236,8 @@ class LauncherApp(_Base):
         self._shown = []
         self._widgets = []
         self._drag = None
-        self._hotkey_q = queue.Queue()
         self._wake_q = queue.Queue()
         self._group_labels = {}
-        self._item_hotkey_map = {}
-        self.hotkeys = HotkeyManager(self._hotkey_q)
 
         self.title(APP_NAME)
         self.configure(bg=self.theme["bg"])
@@ -3707,9 +3277,8 @@ class LauncherApp(_Base):
 
         self.after(60, self.refresh)
         self._setup_tray()
-        self._setup_hotkey()
         self.ipc = WakeServer(self._wake_q)
-        self.after(200, self._poll_hotkey)
+        self.after(200, self._poll_events)
         self.after(4000, self._poll_system_theme)
         if not self.settings.get("guide_shown", False):
             self.after(450, lambda: self._show_guide(first_run=True))
@@ -3772,10 +3341,42 @@ class LauncherApp(_Base):
     def _on_tk_error(self, exc, val, tb):
         text = "".join(traceback.format_exception(exc, val, tb))
         _write_error_log(text)
+        # 兜底自救：万一某个窗口是「建到一半炸了」，它可能还攥着 grab，
+        # 那会让整个界面点不动、看起来像卡死。先松开再说。
+        try:
+            self._release_stuck_grab()
+        except Exception:
+            pass
         try:
             messagebox.showerror("出错了", "%s\n\n详情已写入 launcher_error.log" % val)
         except Exception:
             pass
+
+    def _release_stuck_grab(self, force=False):
+        """松开 grab，并清掉没建完的对话框（force=True 时连显示出来的一起清）"""
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        for w in list(self.winfo_children()):
+            try:
+                if not isinstance(w, tk.Toplevel) or not w.winfo_exists():
+                    continue
+                if not force and w.winfo_viewable():
+                    continue
+                w.grab_release()
+                w.destroy()
+            except Exception:
+                pass
+
+    def _dialog_failed(self, exc, val, tb):
+        """某个对话框建到一半失败：把半成品窗口和 grab 清掉，否则界面会像卡死"""
+        try:
+            self._release_stuck_grab(force=True)
+        except Exception:
+            pass
+        self._busy = 0
+        self._on_tk_error(exc, val, tb)
 
     # ---------------- UI 构建 ----------------
     def _build_topbar(self):
@@ -3815,7 +3416,7 @@ class LauncherApp(_Base):
             font=(FONT_UI, 11), padx=11, pady=9, tooltip="更多设置")
         self.menu_btn.pack(side="right", padx=(6, 0))
 
-        # 第二行：搜索 + 分组 + 快捷键
+        # 第二行：搜索 + 分组
         bar2 = tk.Frame(self, bg=th["bg"])
         bar2.pack(fill="x", padx=20, pady=(12, 12))
 
@@ -3836,12 +3437,6 @@ class LauncherApp(_Base):
         self.group_cb.pack(side="left", padx=(10, 0), ipady=5)
         self.group_cb.bind("<<ComboboxSelected>>", self._on_group)
 
-        self.hotkey_btn = RoundButton(
-            bar2, "⌨  未设置", self._hotkey_dialog, th, variant="ghost",
-            font=(FONT_UI, 9), padx=12, pady=9,
-            tooltip="全局快捷键：在任何界面按一下就能唤出 / 收起这个窗口")
-        self.hotkey_btn.pack(side="left", padx=(10, 0))
-        self._update_hotkey_ui(save=False)
 
         tk.Frame(self, bg=th["border"], height=1).pack(fill="x", padx=20)
 
@@ -3889,10 +3484,8 @@ class LauncherApp(_Base):
         self._update_hint()
 
     def _update_hint(self):
-        hk = self.settings.get("hotkey", DEFAULT_HOTKEY)
-        tail = " · %s 唤出" % hk if self.settings.get("hotkey_enabled", True) else ""
         try:
-            self.hint.config(text="↑↓ 选择 · Enter 启动 · 右键更多 · Ctrl+F 搜索%s" % tail)
+            self.hint.config(text="↑↓ 选择 · Enter 启动 · 右键更多 · Ctrl+F 搜索")
         except Exception:
             pass
 
@@ -3904,10 +3497,6 @@ class LauncherApp(_Base):
         self.autostart_var = tk.BooleanVar(value=is_autostart())
         self.topmost_var = tk.BooleanVar(value=self.settings.get("always_on_top", False))
         self.tray_var = tk.BooleanVar(value=self.settings.get("tray_enabled", True))
-        self.hotkey_var = tk.BooleanVar(value=self.settings.get("hotkey_enabled", True))
-        self.menu.add_checkbutton(label="启用全局快捷键", variable=self.hotkey_var,
-                                  command=self._toggle_hotkey_enabled)
-        self.menu.add_command(label="⌨  快捷键设置…", command=self._hotkey_dialog)
         self.menu.add_command(label="❓  使用引导 / 怎么看", command=self._show_guide)
         self.menu.add_separator()
         self.menu.add_checkbutton(label="开机自动启动", variable=self.autostart_var,
@@ -3919,7 +3508,7 @@ class LauncherApp(_Base):
         self.start_hidden_var = tk.BooleanVar(value=self.settings.get("start_hidden", False))
         self.blur_var = tk.BooleanVar(value=self.settings.get("hide_on_blur", False))
         self.sort_var = tk.StringVar(value=self.settings.get("sort_mode", "name"))
-        self.menu.add_checkbutton(label="启动时隐藏窗口（只留托盘 + 快捷键）",
+        self.menu.add_checkbutton(label="启动时隐藏窗口（只留托盘）",
                                   variable=self.start_hidden_var,
                                   command=self._toggle_start_hidden)
         self.menu.add_checkbutton(label="点到别处自动收起（像 Spotlight）",
@@ -4422,7 +4011,7 @@ class LauncherApp(_Base):
         try:
             CreateFileDialog(self, self, kind)
         except Exception:
-            self._on_tk_error(*sys.exc_info())
+            self._dialog_failed(*sys.exc_info())
 
     def _blank_menu(self, event):
         """列表空白处右键：快速新建 / 添加 / 刷新"""
@@ -4471,13 +4060,13 @@ class LauncherApp(_Base):
         try:
             HealthDialog(self, self)
         except Exception:
-            self._on_tk_error(*sys.exc_info())
+            self._dialog_failed(*sys.exc_info())
 
     def _chains_dialog(self):
         try:
             ChainDialog(self, self)
         except Exception:
-            self._on_tk_error(*sys.exc_info())
+            self._dialog_failed(*sys.exc_info())
 
     def item_by_id(self, item_id):
         for item in self.cfg["items"]:
@@ -4504,7 +4093,7 @@ class LauncherApp(_Base):
         try:
             ImportDialog(self, self)
         except Exception:
-            self._on_tk_error(*sys.exc_info())
+            self._dialog_failed(*sys.exc_info())
 
     def _add_folder(self):
         d = self._native(filedialog.askdirectory, title="选择文件夹")
@@ -4528,14 +4117,10 @@ class LauncherApp(_Base):
             shell_execute("open", path)
 
     def _after_items_changed(self):
-        """项目变动后的统一收尾：存盘、重绘、把快捷键重新注册一遍"""
+        """项目变动后的统一收尾：存盘、重绘"""
         save_config(self.cfg)
         self._normalize_orders()
         self.refresh()
-        try:
-            self._register_hotkeys()
-        except Exception:
-            pass
 
     def _quick_add(self, path):
         """批量拖入时用默认名称快速添加"""
@@ -4567,7 +4152,11 @@ class LauncherApp(_Base):
         if not path:
             return
         groups = [i.get("group", "") for i in self.cfg["items"] if i.get("group")]
-        dlg = ItemDialog(self, self, path=path, groups=groups)
+        try:
+            dlg = ItemDialog(self, self, path=path, groups=groups)
+        except Exception:
+            self._dialog_failed(*sys.exc_info())
+            return
         data = dlg.show()
         if not data:
             return
@@ -4579,7 +4168,11 @@ class LauncherApp(_Base):
 
     def _edit(self, item):
         groups = [i.get("group", "") for i in self.cfg["items"] if i.get("group")]
-        dlg = ItemDialog(self, self, item=item, groups=groups)
+        try:
+            dlg = ItemDialog(self, self, item=item, groups=groups)
+        except Exception:
+            self._dialog_failed(*sys.exc_info())
+            return
         data = dlg.show()
         if not data:
             return
@@ -4824,7 +4417,7 @@ class LauncherApp(_Base):
         self.settings["start_hidden"] = bool(self.start_hidden_var.get())
         save_config(self.cfg)
         if self.settings["start_hidden"]:
-            self.status.config(text="下次启动会直接缩到托盘（用快捷键或托盘图标唤出）",
+            self.status.config(text="下次启动会直接缩到托盘（点托盘图标唤出）",
                                fg=self.theme["sub"])
         else:
             self.status.config(text="下次启动会正常显示窗口", fg=self.theme["sub"])
@@ -4870,7 +4463,7 @@ class LauncherApp(_Base):
                     return
                 if getattr(self, "_busy", 0) > 0:
                     return
-                # 自己还开着别的窗口（添加 / 引导 / 快捷键设置）就别收
+                # 自己还开着别的窗口（添加 / 引导 / 输入框）就别收
                 for w in self.winfo_children():
                     if isinstance(w, tk.Toplevel) and w.winfo_exists():
                         return
@@ -4901,129 +4494,8 @@ class LauncherApp(_Base):
                 pass
             self.tray_icon = None
 
-    # ---------------- 全局快捷键 ----------------
-    def _register_hotkeys(self):
-        """把「总快捷键 + 每个项目的专属快捷键」一次性注册好"""
-        entries = []
-        if self.settings.get("hotkey_enabled", True):
-            mods, vk = parse_hotkey(self.settings.get("hotkey", DEFAULT_HOTKEY))
-            if vk:
-                entries.append((HOTKEY_ID, mods, vk))
-        self._item_hotkey_map = {}
-        for idx, item in enumerate(self.cfg["items"]):
-            text = str(item.get("hotkey") or "").strip()
-            if not text:
-                continue
-            mods, vk = parse_hotkey(text)
-            if not vk:
-                continue
-            hid = ITEM_HOTKEY_BASE + idx
-            entries.append((hid, mods, vk))
-            self._item_hotkey_map[hid] = item
-        registered, fails = self.hotkeys.set_hotkeys(entries)
-        # 项目专属键失败就把它标出来，界面上可以提示
-        bad_items = []
-        for hid, _code in fails.items():
-            item = self._item_hotkey_map.get(hid)
-            if item is not None:
-                bad_items.append(item.get("name", "?"))
-        if bad_items:
-            self.status.config(text="⚠ 这些专属快捷键没注册上（被占用）：%s"
-                                    % "、".join(bad_items), fg=self.theme["warn"])
-        return registered, fails
-
-    def _dispatch_hotkey(self, hid):
-        if hid == HOTKEY_ID:
-            self._hotkey_toggle()
-            return
-        item = self._item_hotkey_map.get(hid)
-        if item is not None:
-            self.status.config(text="专属快捷键启动：%s" % item.get("name", ""),
-                               fg=self.theme["sub"])
-            self.launch(item)
-
-    def _setup_hotkey(self):
-        """启动时按配置注册全局热键"""
-        self._register_hotkeys()
-        self._update_hotkey_ui(save=False)
-        if not self.settings.get("hotkey_enabled", True):
-            return
-        if HOTKEY_ID in self.hotkeys.fails:
-            err = hotkey_error_text(self.hotkeys.fails[HOTKEY_ID])
-            self.settings["hotkey_enabled"] = False
-            self.hotkey_var.set(False)
-            save_config(self.cfg)
-            self._update_hotkey_ui(save=False)
-            self.status.config(text="⚠ 全局快捷键没能启用：%s（菜单 → ⌨ 快捷键设置 可换一个）"
-                                    % err, fg=self.theme["warn"])
-
-    def _hotkey_label(self):
-        if not self.settings.get("hotkey_enabled", True):
-            return "⌨  快捷键已关"
-        return "⌨  %s" % self.settings.get("hotkey", DEFAULT_HOTKEY)
-
-    def _update_hotkey_ui(self, save=True):
-        try:
-            if hasattr(self, "hotkey_btn"):
-                self.hotkey_btn.set_text(self._hotkey_label())
-                self.hotkey_btn.set_active(bool(self.settings.get("hotkey_enabled", True)))
-            self._update_hint()
-        except Exception:
-            pass
-        if save:
-            save_config(self.cfg)
-
-    def _toggle_hotkey_enabled(self):
-        enabled = bool(self.hotkey_var.get())
-        self.settings["hotkey_enabled"] = enabled
-        registered, fails = self._register_hotkeys()
-        if enabled and HOTKEY_ID in fails:
-            self.hotkey_var.set(False)
-            self.settings["hotkey_enabled"] = False
-            self._register_hotkeys()
-            self._update_hotkey_ui()
-            messagebox.showwarning("快捷键不可用",
-                                   "%s\n\n可以在「⌨ 快捷键设置」里换一个组合。"
-                                   % hotkey_error_text(fails[HOTKEY_ID]), parent=self)
-            return
-        if enabled:
-            self.status.config(text="✅ 全局快捷键已启用：%s"
-                                    % self.settings.get("hotkey", ""),
-                               fg=self.theme["ok"])
-        else:
-            self.status.config(text="已关闭全局快捷键", fg=self.theme["sub"])
-        self._update_hotkey_ui()
-
-    def _apply_hotkey(self, text, enabled=True):
-        """注册并保存新的总快捷键，返回 (是否成功, 信息)"""
-        mods, vk = parse_hotkey(text)
-        if vk is None:
-            return False, "格式不对：需要「修饰键 + 按键」，例如 Ctrl+Alt+Space"
-        nice = format_hotkey(mods, vk)
-        self.settings["hotkey"] = nice
-        self.settings["hotkey_enabled"] = bool(enabled)
-        self.hotkey_var.set(bool(enabled))
-        _registered, fails = self._register_hotkeys()
-        self._update_hotkey_ui()
-        if enabled and HOTKEY_ID in fails:
-            return False, hotkey_error_text(fails[HOTKEY_ID])
-        if enabled:
-            self.status.config(text="✅ 快捷键已更新：%s" % nice, fg=self.theme["ok"])
-        return True, nice
-
-    def _poll_hotkey(self):
-        """主线程轮询：快捷键、第二实例唤出、右键菜单请求都只是入队，不跨线程碰 Tk"""
-        for _ in range(8):
-            try:
-                hid = self._hotkey_q.get_nowait()
-            except queue.Empty:
-                break
-            except Exception:
-                break
-            try:
-                self._dispatch_hotkey(hid)
-            except Exception:
-                self._on_tk_error(*sys.exc_info())
+    def _poll_events(self):
+        """主线程轮询：第二实例唤出 / 右键菜单「添加到启动器」都只是入队，不跨线程碰 Tk"""
         for _ in range(4):
             try:
                 payload = self._wake_q.get_nowait()
@@ -5036,7 +4508,7 @@ class LauncherApp(_Base):
             except Exception:
                 self._on_tk_error(*sys.exc_info())
         try:
-            self.after(150, self._poll_hotkey)
+            self.after(150, self._poll_events)
         except Exception:
             pass
 
@@ -5069,34 +4541,23 @@ class LauncherApp(_Base):
         self.status.config(text="正在添加：%s" % path, fg=self.theme["accent"])
         self.add_item(path)
 
-    def _hotkey_toggle(self):
-        """快捷键行为：窗口在前台就收起，否则唤出"""
-        try:
-            # 有弹窗（添加 / 快捷键设置）开着的时候，只把窗口拉到前面，别收起来
-            if self.grab_current() is not None:
-                self.deiconify()
-                self.lift()
-                self.focus_force()
-                return
-            if self.state() == "withdrawn" or not self.winfo_viewable() \
-                    or not self.focus_displayof():
-                self._summon()
-            else:
-                self.withdraw()
-        except Exception:
-            self._summon()
-
     def _summon(self):
         try:
             self.deiconify()
             self.lift()
             self.attributes("-topmost", True)
             self.after(250, self._drop_topmost)
+            # 先硬抢焦点，再用 Tk 的 focus_force 补一下（抢不到前台时窗口至少在最上层）
+            force_foreground(self)
             self.focus_force()
             self.search.focus_set()
             self.search.select_all()
-            self.status.config(text="已唤出 —— 直接输入可搜索，再按一次快捷键收起",
-                               fg=self.theme["sub"])
+            tip = "已唤出 —— 直接输入可搜索"
+            if self.settings.get("hide_on_blur", False):
+                tip += "（点到别处自动收起）"
+            else:
+                tip += "（点 × 缩到托盘）"
+            self.status.config(text=tip, fg=self.theme["sub"])
         except Exception:
             pass
 
@@ -5107,17 +4568,11 @@ class LauncherApp(_Base):
         except Exception:
             pass
 
-    def _hotkey_dialog(self):
-        try:
-            HotkeyDialog(self, self, self.theme)
-        except Exception:
-            self._on_tk_error(*sys.exc_info())
-
     def _show_guide(self, first_run=False):
         try:
             GuideDialog(self, self, self.theme, first_run=first_run)
         except Exception:
-            self._on_tk_error(*sys.exc_info())
+            self._dialog_failed(*sys.exc_info())
 
     def _import_config(self):
         p = self._native(filedialog.askopenfilename, title="选择配置文件",
@@ -5156,15 +4611,15 @@ class LauncherApp(_Base):
             "%s v%s\n\n"
             "把 BAT / EXE / Python / 文件夹 / 网址 拖进来，\n"
             "起中文名、配图标，点一下就启动。\n\n"
-            "· 全局快捷键 %s 随时唤出 / 收起（可改）\n"
-            "· 唤出后打字搜索，↑↓ 选择、Enter 启动\n"
+            "· 托盘图标 / 再双击一次图标，就能把窗口叫回来\n"
+            "· 打字即搜索，↑↓ 选择、Enter 启动\n"
             "· 重复双击图标不会重复启动，而是把已有窗口叫出来\n"
             "· 添加 / 编辑窗口里有分步引导和「推荐设置」\n"
             "· Python 脚本默认用 pythonw 启动（不弹黑窗）\n"
             "· 批处理在独立窗口里运行，跑完自动关闭\n"
             "· 每个项目可单独设置工作目录 / 启动参数 / 控制台窗口\n\n"
             "配置保存在程序目录下的 launcher_config.json"
-            % (APP_NAME, APP_VERSION, self.settings.get("hotkey", DEFAULT_HOTKEY))
+            % (APP_NAME, APP_VERSION)
         )
 
     # ---------------- 托盘 ----------------
@@ -5221,6 +4676,7 @@ class LauncherApp(_Base):
                 # 有弹窗开着，只把窗口提到前面，别抢弹窗的焦点
                 self.deiconify()
                 self.lift()
+                force_foreground(self)
                 return
         except Exception:
             pass
@@ -5236,6 +4692,7 @@ class LauncherApp(_Base):
         try:
             self.deiconify()
             self.lift()
+            force_foreground(self)
             self.focus_force()
         except Exception:
             pass
@@ -5251,10 +4708,6 @@ class LauncherApp(_Base):
         try:
             self.settings["geometry"] = self.geometry()
             save_config(self.cfg)
-        except Exception:
-            pass
-        try:
-            self.hotkeys.stop()
         except Exception:
             pass
         try:

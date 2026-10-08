@@ -1,10 +1,11 @@
 # 🚀 启动器（MyLauncher）
 
 一个 Windows 上的**可视化本地启动器**：把 BAT / EXE / Python 脚本 / 文件夹 / 网址拖进来，
-起个中文名、配个图标，点一下就能打开；配好全局快捷键后，**任何界面按一下就能唤出它**。
+起个中文名、配个图标，点一下就能打开。
 
 专门为「路径必须是英文，但自己想看中文名」这种场景做的——纯 Python + Tkinter 单文件，
-无第三方界面框架，打包后 35MB 绿色单 exe。
+无第三方界面框架，打包后 34MB 绿色单 exe。关窗口只是缩到托盘，点托盘图标、
+或者**再双击一次程序图标**就能把窗口叫回来（不会开第二个）。
 
 <p align="center">
   <img src="screenshots/main-dark.png" width="49%" alt="深色主题">
@@ -16,9 +17,9 @@
 ## ✨ 功能
 
 **启动与唤出**
-- 全局快捷键（默认 `Ctrl+Alt+Space`）随时唤出 / 收起，录制式改键，被占用会明确提示
-- 唤出后直接打字搜索，`↑` `↓` 选择、`Enter` 启动——完整的「按一下 → 打两个字 → 回车」流程
-- 每个项目可绑**专属快捷键**（如 `Ctrl+Alt+1`），按一下直接启动
+- 窗口调出来后**直接打字就是搜索**，`↑` `↓` 选择、`Enter` 启动——「打两个字 → 回车」就完事
+- **托盘常驻**：点 × 是缩到右下角托盘（不是退出），托盘菜单里直接列出最常用的 6 项
+- **重复双击只唤出已开窗口**：再双击一次程序图标，不会开第二个，而是把已有窗口叫到最前面
 - **启动链 / 工作模式**：一键按顺序拉起一组程序（可设间隔），例如「开工模式」
 - 右键菜单：无窗口启动 / 管理员运行 / 编辑 / 置顶 / 复制路径 / 删除
 
@@ -34,19 +35,19 @@
 
 **细节**
 - 深色 / 浅色主题，支持**跟随系统**
-- 全局图标缓存、自动提取 EXE 原生图标、单实例运行（重复双击只会唤出已有窗口）
+- 全局图标缓存、自动提取 EXE 原生图标、单实例运行
 - 高 DPI 适配、托盘常驻（托盘菜单直接列出最常用的 6 项）、开机自启
 - 配置自动备份（`launcher_config.bak.json`），出错写 `launcher_error.log`
 
 <p align="center">
   <img src="screenshots/add-wizard.png" width="32%" alt="添加引导">
-  <img src="screenshots/hotkey.png" width="32%" alt="快捷键设置">
   <img src="screenshots/guide.png" width="32%" alt="使用引导">
+  <img src="screenshots/keyboard-select.png" width="32%" alt="列表视图">
 </p>
 <p align="center">
   <img src="screenshots/groups.png" width="32%" alt="多层分组">
   <img src="screenshots/chains.png" width="32%" alt="启动链">
-  <img src="screenshots/keyboard-select.png" width="32%" alt="键盘选中">
+  <img src="screenshots/chains-edit.png" width="32%" alt="编辑启动链">
 </p>
 
 ---
@@ -83,15 +84,14 @@ python launcher.py
 
 ---
 
-## ⌨️ 快捷键一览
+## ⌨️ 键盘操作
 
 | 场景 | 按键 |
 |------|------|
-| 唤出 / 收起窗口 | `Ctrl+Alt+Space`（可改） |
-| 搜索 | 唤出后直接打字，`Ctrl+F` 定位，`Esc` 清空 |
+| 把窗口叫回来 | 点托盘图标，或再双击一次程序图标（外部工具也可以绑定这个动作） |
+| 搜索 | 直接打字，`Ctrl+F` 定位搜索框，`Esc` 清空 |
 | 选择 / 启动 | `↑` `↓` 选择，`Enter` 启动，`Home` / `End` 跳首尾 |
 | 刷新列表 | `F5` |
-| 项目专属键 | 每个项目可单独录制，如 `Ctrl+Alt+1` |
 
 ---
 
@@ -114,6 +114,7 @@ requirements.txt      依赖：pillow / pywin32 / tkinterdnd2 / pystray
 release/              打包好的绿色版（启动器.exe + 使用说明副本），下载即用
 icons/                程序图标（_app.ico / _app.png / _tray.png）
 screenshots/          README 用的界面截图
+tests/selftest.py     自检脚本：15 项检查，在临时目录里跑，不动你的配置
 ```
 
 运行后会在程序目录自动生成：`launcher_config.json`（配置，含你的路径，**别提交到仓库**）、
@@ -129,10 +130,32 @@ screenshots/          README 用的界面截图
   PyInstaller 会找不到 Tk 数据目录而打包失败（`打包成exe.bat` 里已经加了 `set "TK_LIBRARY="`）。
 - 程序启动时也会主动清掉这两个指向不存在目录的变量，避免 Tk 初始化失败。
 - 拖拽添加依赖 `tkinterdnd2`，没装也能用（只是不能拖）。
+- **全局快捷键在打包后不可靠，v1.2.1 直接移除了**：`RegisterHotKey` 明明注册成功
+  （别的进程再注册同一个组合会拿到 `1409`），可真按下去窗口没反应；而用同样方式
+  (`SendInput` / `keybd_event`) 注入按键时，一个对照小程序能正常收到 `WM_HOTKEY`。
+  没查到根因，就没留这个功能。要快捷键的话可以用外部工具把「双击启动器 exe」绑上去。
+- **Tkinter 的 `self._w` 是窗口路径名**，千万别用它存自己的尺寸变量：覆盖之后
+  `self.delete(...)` 会变成让 Tcl 去执行一个叫 `460` 的命令，报
+  `TclError: invalid command name "460"`。v1.2 的快捷键录制框就栽在这儿（v1.2.1 已改）。
+- **模态窗口先 `grab_set()` 再搭控件**有风险：控件搭到一半抛异常，就会留下一个攥着输入焦点、
+  关不掉的空窗口，整个界面看着像卡死。v1.2.1 改成了先搭完再抢焦点，并加了兜底清理。
 
 ---
 
 ## 📝 更新日志
+
+**v1.2.1（移除不可靠的全局快捷键 + 修两个真 bug）**
+- **移除：全局快捷键功能整个去掉了**（v1.2 的「按 `Ctrl+Alt+Space` 唤出 / 收起」）。
+  原因见上面「几个坑」：注册成功但按键没反应，而对照程序能收到，没查到根因就不留了。
+  配套的「每个项目绑专属快捷键」用的是同一套机制，也一并移除。
+  现在把窗口叫回来用**托盘图标**或**再双击一次程序图标**，这两条路都实测可靠
+- 修复：**「＋ 添加 / 编辑」窗口根本打不开**（`NameError: name 'item' is not defined`），
+  等于加不了也改不了任何启动项
+- 修复：**对话框建到一半崩了会留下一个关不掉、还攥着输入焦点的空窗口**，整个界面看着像卡死；
+  现在失败会自动清掉并松开焦点
+- 修复：唤出窗口时改用 `AttachThreadInput`（抢不到再补一次 ALT 轻敲）真正抢到最前面；
+  以前后台进程直接调 `SetForegroundWindow` 会被 Windows 拦掉
+- 新增：`tests/selftest.py` 自检脚本（15 项检查，在临时目录里跑，不动你的配置）
 
 **v1.2**
 - 新增：全局快捷键唤出 / 收起、单项专属快捷键
