@@ -1,0 +1,36 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- 打包产物 ----
+build/
+dist/
+*.spec
+
+# ---- 运行期生成：里面有个人路径，别提交 ----
+launcher_config.json
+launcher_config.bak.json
+launcher_error.log
+
+# ---- 图标缓存（只保留程序自己的图标）----
+icons/*
+!icons/_app.ico
+!icons/_app.png
+!icons/_tray.png
+
+# ---- release 目录：exe 跑起来后会生成这些，不要提交 ----
+release/launcher_config.json
+release/launcher_config.bak.json
+release/launcher_error.log
+release/*.log
+
+# ---- 临时 / 编辑器 ----
+_preview/
+.idea/
+.vscode/
+*.log
+Thumbs.db
+desktop.ini

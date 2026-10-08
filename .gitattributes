@@ -1,0 +1,16 @@
+# 统一换行符，避免 Windows 上反复出现 CRLF 提示
+* text=auto
+
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+
+# Windows 脚本保持 CRLF（内容是 GBK 编码，配合批处理里的 chcp 936）
+*.bat  text eol=crlf
+*.vbs  text eol=crlf
+
+# 图片 / 可执行文件按二进制处理
+*.png binary
+*.ico binary
+*.jpg binary
+*.exe binary
